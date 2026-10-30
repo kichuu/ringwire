@@ -134,15 +134,44 @@ seccomp profile that allows `io_uring_setup`, `io_uring_enter` and `io_uring_reg
 
 ## How it works
 
+```mermaid
+flowchart TB
+    clients(["Clients"]) -- "TCP" --> kernel["Linux kernel<br/>SO_REUSEPORT spreads connections across workers"]
+
+    subgraph worker ["Worker thread × N (Rust)"]
+        ring["io_uring<br/>accept, recv, send"] --> parse["Parse HTTP<br/>(httparse)"]
+        encode["Encode responses<br/>status, headers, Date"] --> ring
+    end
+
+    subgraph js ["JS thread"]
+        handler["Your handler"]
+    end
+
+    kernel <--> worker
+    parse -- "N requests, one call" --> handler
+    handler -- "N responses, one call" --> encode
 ```
- worker thread (× threads)                            JS thread
- ┌──────────────────────────────────────┐
- │ io_uring                             │  ONE call per batch
- │  multishot accept → recv → httparse ─┼──────────────────────►  handler(req) × N
- │                                      │                               │
- │  eventfd read wakes the ring ◄───────┼── respond([...]) ◄────────────┘
- │  encode → send (in order per conn)   │      ONE call per batch
- └──────────────────────────────────────┘
+
+What happens to one batch of requests:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Clients
+    participant K as Kernel (io_uring)
+    participant W as Worker thread (Rust)
+    participant J as JS thread
+
+    C->>K: Requests arrive on many connections
+    K-->>W: Completions, collected with one io_uring_enter
+    W->>W: Parse every complete request (httparse)
+    W->>J: One call with all N requests
+    J->>J: handler(req) for each request
+    J->>W: One respond() with N responses, then eventfd wake
+    W->>W: Encode status, headers and Date, keep per-connection order
+    W->>K: Queue sends in the ring
+    K-->>C: Responses
+    Note over W,J: Async handlers answer later on their own.<br/>Sequence numbers keep pipelined responses in order.
 ```
 
 1. Each worker thread owns an io_uring and a `SO_REUSEPORT` listener, and the kernel spreads connections
