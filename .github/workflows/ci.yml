@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: npm run test:rust
+
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm run build
+      - run: node --test --test-reporter=spec test/*.test.js
+
+  # Docker's default seccomp profile blocks io_uring: `auto` must fall back to node:http.
+  fallback:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm run build
+      - name: Serve inside a default (io_uring-blocking) container
+        run: |
+          docker run --rm -v "$PWD":/w -w /w node:22-bookworm-slim node -e '
+            const { createServer } = require("./");
+            const s = createServer(() => "ok", { port: 0, host: "127.0.0.1" });
+            s.ready
+              .then(() => fetch(`http://127.0.0.1:${s.port}`)).then((r) => r.text())
+              .then((t) => {
+                if (s.backend !== "node" || t !== "ok") throw new Error(`backend=${s.backend} body=${t}`);
+                console.log("fell back to node:http as expected");
+                return s.close();
+              });'
+
+  # Release binaries. glibc builds target glibc 2.17 via zig so they load on
+  # old distros too; musl builds run natively inside Alpine.
+  build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, fallback]
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64-gnu, target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04 }
+          - { name: linux-arm64-gnu, target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }
+          - { name: linux-x64-musl, target: x86_64-unknown-linux-musl, runner: ubuntu-24.04 }
+          - { name: linux-arm64-musl, target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (glibc 2.17)
+        if: endsWith(matrix.name, '-gnu')
+        run: |
+          rustup target add ${{ matrix.target }}
+          pip install ziglang cargo-zigbuild
+          cargo zigbuild --release --target ${{ matrix.target }}.2.17
+          cp target/${{ matrix.target }}/release/libringwire.so ringwire.node
+
+      - name: Test (glibc)
+        if: endsWith(matrix.name, '-gnu')
+        run: npm test
+
+      - name: Build + test (musl, Alpine)
+        if: endsWith(matrix.name, '-musl')
+        # seccomp=unconfined: Docker's default profile blocks io_uring, which the tests need.
+        run: |
+          docker run --rm -v "$PWD":/w -w /w rust:alpine sh -ec '
+            RUSTFLAGS="-C target-feature=-crt-static" cargo build --release
+            cp target/release/libringwire.so ringwire.node'
+          docker run --rm --security-opt seccomp=unconfined -v "$PWD":/w -w /w node:22-alpine npm test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ringwire.node
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: npm
+    permissions:
+      contents: write # GitHub release
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Check tag matches package.json
+        run: test "v$(node -p 'require("./package.json").version')" = "${GITHUB_REF_NAME}"
+      - name: Publish platform packages
+        run: |
+          for dir in npm/*/; do
+            name=$(basename "$dir")
+            cp "artifacts/$name/ringwire.node" "$dir"
+            (cd "$dir" && npm publish --provenance --access public)
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish ringwire
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
