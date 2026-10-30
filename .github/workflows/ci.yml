@@ -128,20 +128,29 @@ jobs:
           path: artifacts
       - name: Check tag matches package.json
         run: test "v$(node -p 'require("./package.json").version')" = "${GITHUB_REF_NAME}"
+      # Skips versions already on npm, so a failed run can be re-run safely.
       - name: Publish platform packages
         run: |
           for dir in npm/*/; do
             name=$(basename "$dir")
             cp "artifacts/$name/ringwire.node" "$dir"
-            (cd "$dir" && npm publish --provenance --access public)
+            (
+              cd "$dir"
+              pkg="$(node -p 'const p = require("./package.json"); p.name + "@" + p.version')"
+              if npm view "$pkg" version >/dev/null 2>&1; then echo "$pkg already published"; exit 0; fi
+              npm publish --provenance --access public
+            )
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish ringwire
-        run: npm publish --provenance --access public
+        run: |
+          pkg="$(node -p 'const p = require("./package.json"); p.name + "@" + p.version')"
+          if npm view "$pkg" version >/dev/null 2>&1; then echo "$pkg already published"; exit 0; fi
+          npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: GitHub release
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}
