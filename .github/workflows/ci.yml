@@ -116,13 +116,16 @@ jobs:
     environment: npm
     permissions:
       contents: write # GitHub release
-      id-token: write # npm provenance
+      id-token: write # npm trusted publishing (OIDC) + provenance
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1. No token: npm authenticates with
+      # the workflow's OIDC identity, which each package trusts on npmjs.com.
+      - run: npm install -g npm@^11.5.1 && npm --version
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -138,18 +141,14 @@ jobs:
               cd "$dir"
               pkg="$(node -p 'const p = require("./package.json"); p.name + "@" + p.version')"
               if npm view "$pkg" version >/dev/null 2>&1; then echo "$pkg already published"; exit 0; fi
-              npm publish --provenance --access public
+              npm publish --access public
             )
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish ringwire
         run: |
           pkg="$(node -p 'const p = require("./package.json"); p.name + "@" + p.version')"
           if npm view "$pkg" version >/dev/null 2>&1; then echo "$pkg already published"; exit 0; fi
-          npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          npm publish --access public
       - name: GitHub release
         run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
         env:
