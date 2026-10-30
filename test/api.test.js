@@ -61,4 +61,18 @@ describe('API validation', () => {
       await a.close();
     }
   });
+
+  it('refuses a second io_uring server on a port already served by io_uring', async () => {
+    // Regression: SO_REUSEPORT used to let both bind and silently split traffic.
+    const a = createServer(() => 'a', { port: 0, host: '127.0.0.1', backend: 'io_uring', threads: 2 });
+    try {
+      assert.throws(() => createServer(() => 'b', { port: a.port, host: '127.0.0.1', backend: 'io_uring' }), /in use/i);
+      // The first server still owns every connection.
+      for (let i = 0; i < 20; i++) {
+        assert.strictEqual(await (await fetch(`http://127.0.0.1:${a.port}/`)).text(), 'a');
+      }
+    } finally {
+      await a.close();
+    }
+  });
 });

@@ -55,6 +55,18 @@ pub struct NativeServer {
     port: u32,
 }
 
+/// Fail with EADDRINUSE if anything is already listening on `addr`.
+///
+/// Our listeners use SO_REUSEPORT so the workers can share a port, but that
+/// also lets a second ringwire process on the same port bind successfully and
+/// silently split the traffic. A probe socket without SO_REUSEPORT conflicts
+/// with any existing listener, so binding it first restores the usual error.
+fn ensure_port_free(addr: SocketAddr) -> std::io::Result<()> {
+    let probe = Socket::new(Domain::for_address(addr), Type::STREAM, None)?;
+    probe.set_reuse_address(true)?; // ignore TIME_WAIT leftovers, like a normal listener
+    probe.bind(&addr.into())
+}
+
 fn bind(addr: SocketAddr) -> std::io::Result<Socket> {
     let s = Socket::new(Domain::for_address(addr), Type::STREAM, None)?;
     s.set_reuse_address(true)?;
@@ -127,6 +139,10 @@ impl NativeServer {
             .ok_or_else(|| Error::from_reason(format!("cannot resolve {host}")))?;
 
         // Bind every listener up front so errors (EADDRINUSE...) throw in JS.
+        if addr.port() != 0 {
+            ensure_port_free(addr)
+                .map_err(|e| Error::from_reason(format!("listen {addr}: {e}")))?;
+        }
         let mut listeners = Vec::with_capacity(n as usize);
         for _ in 0..n {
             let l = bind(addr).map_err(|e| Error::from_reason(format!("listen {addr}: {e}")))?;
