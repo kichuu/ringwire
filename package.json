@@ -1,6 +1,6 @@
 {
   "name": "ringwire",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "io_uring HTTP server for Node.js: networking in Rust, handlers in JavaScript",
   "keywords": [
     "io_uring",
@@ -51,9 +51,9 @@
     "url": "https://github.com/kichuu/ringwire/issues"
   },
   "optionalDependencies": {
-    "ringwire-linux-x64-gnu": "0.1.0",
-    "ringwire-linux-arm64-gnu": "0.1.0",
-    "ringwire-linux-x64-musl": "0.1.0",
-    "ringwire-linux-arm64-musl": "0.1.0"
+    "ringwire-linux-x64-gnu": "0.1.1",
+    "ringwire-linux-arm64-gnu": "0.1.1",
+    "ringwire-linux-x64-musl": "0.1.1",
+    "ringwire-linux-arm64-musl": "0.1.1"
   }
 }
