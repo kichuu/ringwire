@@ -1,0 +1,29 @@
+[package]
+name = "ringwire"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+license = "MIT"
+repository = "https://github.com/kichuu/ringwire"
+description = "io_uring HTTP/1.1 server for Node.js"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", default-features = false, features = ["napi4"] }
+napi-derive = "2"
+io-uring = "0.7"
+httparse = "1"
+libc = "0.2"
+socket2 = { version = "0.5", features = ["all"] }
+httpdate = "1"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

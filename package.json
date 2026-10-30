@@ -1,0 +1,59 @@
+{
+  "name": "ringwire",
+  "version": "0.1.0",
+  "description": "io_uring HTTP server for Node.js: networking in Rust, handlers in JavaScript",
+  "keywords": [
+    "io_uring",
+    "iouring",
+    "http",
+    "server",
+    "http-server",
+    "performance",
+    "fast",
+    "napi",
+    "rust",
+    "linux",
+    "hono"
+  ],
+  "license": "MIT",
+  "author": "kichuu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kichuu/ringwire.git"
+  },
+  "main": "lib/index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "index.mjs",
+    "index.d.ts"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "cargo build --release && cp target/release/libringwire.so ringwire.node",
+    "build:debug": "cargo build && cp target/debug/libringwire.so ringwire.node",
+    "test": "node --test test/*.test.js",
+    "test:rust": "RUSTFLAGS='-C link-arg=-Wl,--unresolved-symbols=ignore-all' cargo test --lib",
+    "version": "node scripts/sync-versions.js && git add package.json npm"
+  },
+  "homepage": "https://github.com/kichuu/ringwire#readme",
+  "bugs": {
+    "url": "https://github.com/kichuu/ringwire/issues"
+  },
+  "optionalDependencies": {
+    "ringwire-linux-x64-gnu": "0.1.0",
+    "ringwire-linux-arm64-gnu": "0.1.0",
+    "ringwire-linux-x64-musl": "0.1.0",
+    "ringwire-linux-arm64-musl": "0.1.0"
+  }
+}
