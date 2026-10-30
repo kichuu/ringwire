@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-31
+
+### Fixed
+
+- Starting a second server on a port that ringwire is already serving now fails with
+  `EADDRINUSE`. Previously `SO_REUSEPORT` let both bind and silently split the traffic.
+
+### Added
+
+- uWebSockets.js in the benchmark suite, plus CPU usage, requests per CPU-second and
+  single-core (`SERVER_CPUS`) modes in `bench/run.sh`.
+
+## [0.1.0] - 2026-10-30
+
 ### Added
 
 - io_uring HTTP/1.1 server core in Rust: multishot accept, keep-alive, pipelining with in-order

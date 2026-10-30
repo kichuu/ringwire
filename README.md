@@ -17,7 +17,7 @@ const { createServer } = require('ringwire');
 createServer((req) => ({ hello: 'world', path: req.url }), { port: 3000 });
 ```
 
-- **Fast**: on a hello-world benchmark, ~3.6× `node:http` with one I/O thread and ~6× with two; ~2.4× `Bun.serve` ([numbers and caveats](#benchmarks)).
+- **Fast**: on a hello-world benchmark, ~3× `node:http` with one I/O thread and ~5.5× with two, ahead of `Bun.serve` and uWebSockets.js when cores are available ([numbers and caveats](#benchmarks)).
 - **Node, not a new runtime**: keep your Node version, your npm packages and your deployment.
 - **Runs everywhere**: io_uring on Linux; automatic `node:http` fallback on macOS, Windows and in restricted containers, with the same API.
 - **Bring your framework**: `serve({ fetch })` runs any Fetch API app, such as [Hono](https://hono.dev).
@@ -157,21 +157,39 @@ Contributors: [`docs/architecture.md`](docs/architecture.md) walks through the e
 
 ## Benchmarks
 
-`bench/run.sh` reproduces these. `oha -z 8s -c 256`, keep-alive, 12-core x86-64, Linux 7.0, Node 18.20,
-load generator on the same machine:
+Reproduce with `bench/run.sh` (uWebSockets.js is optional: `cd bench && npm install`).
+`oha -z 10s -c 256`, keep-alive, `GET /json`, 12-core x86-64, Linux 7.0, Node 24.22, uWebSockets.js
+20.71 (no microcaching), Bun 1.3.5. The load generator runs on the same machine.
 
-| Server                | `/plaintext` req/s | `/json` req/s | p99 (plaintext) |
-|-----------------------|-------------------:|--------------:|----------------:|
-| `node:http`           | 32,874             | 32,458        | 12.9 ms         |
-| `Bun.serve` 1.3.5     | 86,179             | 86,064        | 5.3 ms          |
-| ringwire, 1 thread    | 119,390            | 121,038       | 2.9 ms          |
-| ringwire, 2 threads   | **209,804**        | **203,204**   | **1.9 ms**      |
+**Spare cores** (default; each server uses as many cores as it wants):
 
-**Read these honestly:**
-- This is hello-world. Real apps spend their time in your code and your database, so expect a smaller
-  (but real) gain.
-- The load generator shares the CPU with the server; compare rows, not absolute numbers.
-- [uWebSockets.js](https://github.com/uNetworking/uWebSockets.js) has not been compared yet (help wanted).
+| Server                | req/s       | p99         | CPU cores used | req per CPU-second |
+|-----------------------|------------:|------------:|---------------:|-------------------:|
+| `node:http`           | 38,890      | 8.6 ms      | 0.86           | 45,432             |
+| `Bun.serve`           | 85,878      | 5.3 ms      | 0.82           | 104,729            |
+| uWebSockets.js        | 103,245     | 4.6 ms      | 0.73           | **142,016**        |
+| ringwire, 1 I/O thread| 119,449     | 3.0 ms      | 1.06           | 112,159            |
+| ringwire, 2 I/O threads| **212,684**| **1.8 ms**  | 2.07           | 102,597            |
+
+**One core** (each server pinned with `SERVER_CPUS=11 CLIENT_CPUS=0-9 bench/run.sh`):
+
+| Server                | req/s       | p99         | req per CPU-second |
+|-----------------------|------------:|------------:|-------------------:|
+| `node:http`           | 38,859      | 9.0 ms      | 46,096             |
+| `Bun.serve`           | 87,021      | 4.4 ms      | 114,052            |
+| uWebSockets.js        | **106,356** | 4.5 ms      | **146,295**        |
+| ringwire, 1 I/O thread| 97,259      | **3.9 ms**  | 132,325            |
+| ringwire, 2 I/O threads| 100,684    | 4.6 ms      | 138,683            |
+
+**What this means:**
+- **With spare cores, ringwire has the highest throughput and lowest latency.** Its I/O runs on
+  separate threads, so parsing and sending overlap with your JavaScript. That is also why it uses
+  more CPU in total.
+- **On a single core, uWebSockets.js is ~5–9% faster and more CPU-efficient.** It does everything on
+  one thread with no cross-thread handoff. If you deploy on 1-vCPU instances, measure both.
+- Both are ~2.5× `node:http` or better in every setup.
+- This is hello-world. Real apps spend their time in your code and your database, so expect a
+  smaller (but real) gain. The load generator shares the machine, so compare rows, not absolute numbers.
 
 ## Limitations
 
@@ -187,7 +205,9 @@ load generator on the same machine:
 - [ ] Chunked request bodies
 - [ ] Provided buffer rings and multishot recv, registered files, zero-copy send
 - [ ] Fuzzing the parser and connection state machine
-- [ ] Benchmark against uWebSockets.js, plus a realistic DB-backed benchmark
+- [x] Benchmark against uWebSockets.js
+- [ ] Realistic DB-backed benchmark
+- [ ] Better single-core efficiency (run the I/O loop on the JS thread when `threads: 0`)
 - [ ] WebSockets
 
 ## Contributing
