@@ -1,0 +1,26 @@
+{
+  "name": "ringwire-linux-arm64-gnu",
+  "version": "0.1.0",
+  "description": "ringwire prebuilt binary for aarch64-unknown-linux-gnu",
+  "main": "ringwire.node",
+  "files": [
+    "ringwire.node"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kichuu/ringwire.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
