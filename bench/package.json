@@ -1,0 +1,8 @@
+{
+  "name": "ringwire-bench",
+  "private": true,
+  "description": "Benchmark-only dependencies, kept out of the published package",
+  "dependencies": {
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.71.0"
+  }
+}
